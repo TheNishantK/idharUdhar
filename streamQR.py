@@ -1,39 +1,41 @@
 import cv2
-import numpy as np
-import requests
-from pyzbar.pyzbar import decode
 
-ESP32_CAM_URL = "http://192.168.1.36/stream"  # Change this to your ESP32-CAM IP
+# 🔧 Replace with your ESP32-CAM's IP address
+ESP32_STREAM_URL = "http://192.168.1.36/stream"
 
-def convert_rgb565_to_bgr888(rgb565_img):
-    """ Convert RGB565 image to OpenCV BGR format """
-    img = np.frombuffer(rgb565_img, dtype=np.uint16)
-    r = ((img >> 11) & 0x1F) * 255 // 31
-    g = ((img >> 5) & 0x3F) * 255 // 63
-    b = (img & 0x1F) * 255 // 31
-    return cv2.merge((b, g, r))
+# Initialize OpenCV's built-in QR code detector
+qr_detector = cv2.QRCodeDetector()
 
-def get_frame():
-    response = requests.get(ESP32_CAM_URL, stream=True)
-    if response.status_code == 200:
-        img_data = response.raw.read()
-        return convert_rgb565_to_bgr888(img_data)
-    return None
+def read_qr_code(frame):
+    """ Detect and decode QR codes from a frame """
+    data, bbox, _ = qr_detector.detectAndDecode(frame)
+    if bbox is not None:
+        for point in bbox:
+            point = point[0]  # Convert to a usable format
+            cv2.polylines(frame, [point.astype(int)], isClosed=True, color=(0, 255, 0), thickness=2)
+    return data
 
-while True:
-    frame = get_frame()
-    if frame is not None:
-        qr_codes = decode(frame)
-        for qr in qr_codes:
-            qr_data = qr.data.decode("utf-8")
-            print(f"QR Code Detected: {qr_data}")
-            x, y, w, h = qr.rect
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            cv2.putText(frame, qr_data, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+def main():
+    cap = cv2.VideoCapture(ESP32_STREAM_URL)  # Open ESP32-CAM Stream
 
-        cv2.imshow("QR Code Scanner", frame)
-    
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print("Failed to capture frame")
+            continue
+        
+        qr_data = read_qr_code(frame)
+        if qr_data:
+            print(f"✅ QR Code Found: {qr_data}")
+        
+        # Show Video Stream
+        cv2.imshow("ESP32-CAM QR Scanner", frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
-cv2.destroyAllWindows()
+    cap.release()
+    cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    main()
+
